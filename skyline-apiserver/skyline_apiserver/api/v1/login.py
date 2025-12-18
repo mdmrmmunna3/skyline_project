@@ -270,32 +270,26 @@ def websso(
 # Skip token validation for dev / dashboard
 # ---------------------------
 
-@router.get("/profile", response_model=schemas.Profile)
+@router.get(
+    "/profile",
+    description="Get user profile.",
+    responses={
+        200: {"model": schemas.Profile},
+        401: {"model": schemas.UnauthorizedMessage},
+    },
+    response_model=schemas.Profile,
+    status_code=status.HTTP_200_OK,
+    response_description="OK",
+)
 def get_profile(
-    request: Request,
+    profile: schemas.Profile = Depends(deps.get_profile_update_jwt),
     x_openstack_request_id: str = Header(
-        "", alias=constants.INBOUND_HEADER, regex=constants.INBOUND_HEADER_REGEX
+        "",
+        alias=constants.INBOUND_HEADER,
+        regex=constants.INBOUND_HEADER_REGEX,
     ),
 ) -> schemas.Profile:
-    """
-    In dev mode, we skip JWT validation to avoid 401 / CORS issues.
-    """
-    try:
-        # Try normal profile retrieval
-        profile: schemas.Profile = deps.get_profile_update_jwt(request)
-        return _patch_profile(profile, x_openstack_request_id)
-    except Exception:
-        # Fallback for dev: return a fake profile
-        fake_profile = schemas.Profile(
-            user=schemas.User(id="1", name="admin", email="admin@example.com"),
-            keystone_token="fake-token",
-            region=CONF.openstack.default_region,
-            projects={},
-            default_project_id=None,
-            endpoints={},
-            exp=9999999999,
-        )
-        return fake_profile
+    return _patch_profile(profile, x_openstack_request_id)
 
 
 @router.post("/logout", response_model=schemas.Message)

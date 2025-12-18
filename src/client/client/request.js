@@ -16,6 +16,9 @@ import Axios from 'axios';
 import { isEmpty } from 'lodash';
 import qs from 'qs';
 import { v4 as uuidv4 } from 'uuid';
+import { getLocalStorageItem } from 'utils/local-storage';
+import moment from 'moment';
+import cookie from 'utils/cookie';
 
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'COPY'];
 
@@ -50,6 +53,19 @@ export class HttpRequest {
 
   // ❌ Token-based auth REMOVED (Skyline uses cookie session)
 
+  addToken(config) {
+    const keystoneToken = getLocalStorageItem('keystone_token') || '';
+    const timeExpiredStr = cookie('time_expired');
+    let tokenIsValid = false;
+    if (timeExpiredStr) {
+      const now = moment().valueOf();
+      tokenIsValid = now < timeExpiredStr * 1000;
+    }
+    if (keystoneToken && tokenIsValid) {
+      config.headers['X-Auth-Token'] = keystoneToken;
+    }
+  }
+
   addVersion(config, url) {
     const { getOpenstackApiVersion } = require('./constants');
     const apiVersionMap = getOpenstackApiVersion(url);
@@ -79,6 +95,7 @@ export class HttpRequest {
 
   updateRequestConfig(config, url) {
     this.addRequestId(config);
+    this.addToken(config);
     this.addVersion(config, url);
     this.updateHeaderByConfig(config);
     return config;
@@ -169,10 +186,10 @@ export class HttpRequest {
     METHODS.forEach((method) => {
       const lowerMethod = method.toLowerCase();
       if (['get', 'head', 'copy'].includes(lowerMethod)) {
-        this.request['get'] = (url, params = {}, options) =>
+        this.request[lowerMethod] = (url, params = {}, options) =>
           this.buildRequest({ method: 'get', url, params, options });
       } else {
-        this.request['post'] = (url, data, params, options) =>
+        this.request[lowerMethod] = (url, data, params, options) =>
           this.buildRequest({ method: 'post', url, data, params, options });
       }
     });

@@ -80,25 +80,24 @@ async def validate_token(request: Request, call_next):
     url_path = request.url.path
     LOG.debug(f"Request path: {url_path}")
 
-    # URLs that DO NOT need auth
     ignore_urls = [
         f"{constants.API_PREFIX}/login",
         f"{constants.API_PREFIX}/websso",
+        "/static",
+        "/docs",
+        f"{constants.API_PREFIX}/openapi.json",
+        "/favicon.ico",
         f"{constants.API_PREFIX}/sso",
         f"{constants.API_PREFIX}/config",
-        f"{constants.API_PREFIX}/openapi.json",
         f"{constants.API_PREFIX}/contrib/keystone_endpoints",
+        # f"{constants.API_PREFIX}/contrib/domains",
         f"{constants.API_PREFIX}/contrib/regions",
-        "/docs",
-        "/static",
-        "/favicon.ico",
     ]
 
     for ignore_url in ignore_urls:
         if url_path.startswith(ignore_url):
             return await call_next(request)
 
-    # All other /api requests REQUIRE auth
     if url_path.startswith(constants.API_PREFIX):
         token = request.cookies.get(CONF.default.session_name)
 
@@ -109,7 +108,6 @@ async def validate_token(request: Request, call_next):
             )
 
         try:
-            # DEV safety (revoked_token table missing)
             try:
                 db_api.purge_revoked_token()
             except Exception as e:
@@ -118,20 +116,18 @@ async def validate_token(request: Request, call_next):
             parsed_token = parse_access_token(token)
             profile = generate_profile_by_token(parsed_token)
 
-            # Attach RequestContext (CRITICAL)
             request.state.context = RequestContext(
                 user_id=profile.user.id,
                 project_id=profile.project.id,
                 project_name=profile.project.name,
                 user_domain_id=profile.user.domain.id,
                 project_domain_id=profile.project.domain.id,
-                roles=[r.name for r in profile.roles],
+                roles=[role.name for role in profile.roles],
                 auth_token=profile.keystone_token,
             )
 
             request.state.profile = profile
 
-            # Token auto-renew
             if 0 < profile.exp - time.time() < CONF.default.access_token_renew:
                 profile.exp = int(time.time()) + CONF.default.access_token_expire
                 request.state.token_needs_renewal = True
@@ -152,7 +148,6 @@ async def validate_token(request: Request, call_next):
 
     response = await call_next(request)
 
-    # Set renewed token
     if getattr(request.state, "token_needs_renewal", False):
         response.set_cookie(CONF.default.session_name, request.state.new_token)
         response.set_cookie(constants.TIME_EXPIRED_KEY, request.state.new_exp)
@@ -160,54 +155,83 @@ async def validate_token(request: Request, call_next):
     return response
 
 # ---------------------------------------------------------
-# REAL PROFILE (Keystone-based)
+# PROFILE ENDPOINT
 # ---------------------------------------------------------
-@app.get(f"{constants.API_PREFIX}/profile")
-async def profile(request: Request):
-    profile = request.state.profile
-    return JSONResponse(
-        {
-            "keystone_token": profile.keystone_token,
-            "region": profile.region,
-            "exp": profile.exp,
-            "uuid": profile.uuid,
-            "user": {
-                "id": profile.user.id,
-                "name": profile.user.name,
-                "domain": {
-                    "id": profile.user.domain.id,
-                    "name": profile.user.domain.name,
-                },
-            },
-            "project": {
-                "id": profile.project.id,
-                "name": profile.project.name,
-                "domain": {
-                    "id": profile.project.domain.id,
-                    "name": profile.project.domain.name,
-                },
-            },
-            "roles": [{"name": r.name} for r in profile.roles],
-            "default_project_id": profile.project.id,
-        }
-    )
+# @app.get(f"{constants.API_PREFIX}/profile")
+# async def profile(request: Request):
+#     profile = request.state.profile
+#     return JSONResponse(
+#     {
+#         "keystone_token": profile.keystone_token,
+#         "region": profile.region,
+#         "exp": profile.exp,
+#         "uuid": profile.uuid,
+
+#         "project": {
+#             "id": profile.project.id,
+#             "name": profile.project.name,
+#             "domain": {
+#                 "id": profile.project.domain.id,
+#                 "name": profile.project.domain.name,
+#             },
+#         },
+
+#         "user": {
+#             "id": profile.user.id,
+#             "name": profile.user.name,
+#             "domain": {
+#                 "id": profile.user.domain.id,
+#                 "name": profile.user.domain.name,
+#             },
+#         },
+
+#         "roles": [
+#             {
+#                 "id": r.id,
+#                 "name": r.name
+#             } for r in profile.roles
+#         ],
+
+#         "keystone_token_exp": profile.keystone_token_exp,
+#         "base_domains": profile.base_domains,
+
+#         "endpoints": {
+#             "nova": profile.endpoints.nova,
+#             "neutron": profile.endpoints.neutron,
+#             "keystone": profile.endpoints.keystone,
+#             "glance": profile.endpoints.glance,
+#         },
+
+#         "projects": {
+#             profile.project.id: {
+#                 "name": profile.project.name,
+#                 "enabled": profile.project.enabled,
+#                 "domain_id": profile.project.domain.id,
+#                 "description": profile.project.description,
+#             }
+#         },
+
+#         "default_project_id": profile.project.id,
+#         "version": profile.version,
+#     }
+# )
+
+
+# # ---------------------------------------------------------
+# # POLICIES ENDPOINT
+# # ---------------------------------------------------------
+# @app.get(f"{constants.API_PREFIX}/policies")
+# async def policies(request: Request):
+#     profile = request.state.profile
+#     role_names = [r.name.lower() for r in profile.roles]
+#     return JSONResponse(
+#         {
+#             "isAdmin": "admin" in role_names,
+#             "canViewDashboard": "admin" in role_names or "member" in role_names,
+#         }
+#     )
 
 # ---------------------------------------------------------
-# REAL POLICIES (Keystone-based simplified)
-# ---------------------------------------------------------
-@app.get(f"{constants.API_PREFIX}/policies")
-async def policies(request: Request):
-    profile = request.state.profile
-    # Example: convert role info into simple allowed flags
-    role_names = [r.name.lower() for r in profile.roles]
-    return JSONResponse(
-        {
-            "isAdmin": "admin" in role_names,
-            "canViewDashboard": "admin" in role_names or "member" in role_names,
-        }
-    )
-
-# ---------------------------------------------------------
-# ROUTES (other API routes)
+# OTHER ROUTES
 # ---------------------------------------------------------
 app.include_router(api_router, prefix=constants.API_PREFIX)
