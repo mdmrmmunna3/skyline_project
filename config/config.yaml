@@ -1,0 +1,24 @@
+# host: 127.0.0.1
+# port: 8088
+# server: http://localhost
+# theme: default
+
+# server: http://localhost:9999/api/v1
+# server: http://localhost:9999/api/openstack/skyline/api/v1
+server: /api/v1
+
+# host: localhost
+host: 127.0.0.1
+
+port: 8088
+theme: default
+
+globalVariables:
+  defaultLanguage: en
+  supportLanguages:
+    - en
+    - zh-hans
+    - ko-kr
+    - tr-tr
+    - ru
+

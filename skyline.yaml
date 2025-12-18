@@ -1,0 +1,7 @@
+default:
+  database_url: mysql://skyline:YOUR_DB_PASSWORD@localhost:3306/skyline
+  debug: true
+  log_dir: /var/log
+openstack:
+  keystone_url: http://localhost:5000/v3/
+  system_user_password: SKYLINE_SERVICE_PASSWORD
